@@ -1,0 +1,137 @@
+version: '3.8'
+
+services:
+  # ---------------------------------------------------------------------------
+  # 1. FRONTEND (React + Vite)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build: 
+      context: ./frontend
+      dockerfile: Dockerfile  # <--- APONTAR PARA O NOVO ARQUIVO
+    image: shortener_frontend_dev # Nome da imagem para não conflitar com a de prod
+    container_name: shortener_frontend
+    working_dir: /app
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules # Garante que node_modules do container persista
+    environment:
+      - VITE_API_URL=http://localhost
+
+  # ... (Mantenha os outros serviços: app, nginx, dbs, redis como estavam)
+  app:
+    build: ./backend
+    container_name: shortener_api
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - DATABASE_WRITE_URL=postgresql+asyncpg://user:password@db_master:5432/shortener_db
+      - DATABASE_READ_URLS=postgresql+asyncpg://user:password@db_replica_1:5432/shortener_db,postgresql+asyncpg://user:password@db_replica_2:5432/shortener_db,postgresql+asyncpg://user:password@db_replica_3:5432/shortener_db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      db_master:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+
+  nginx:
+    image: nginx:alpine
+    container_name: shortener_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.local.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+      - frontend
+
+  # ... (Mantenha db_master, db_replica_1/2/3 e redis iguais ao anterior)
+  db_master:
+    image: postgres:15-alpine
+    container_name: shortener_db_master
+    restart: always
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=shortener_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_master_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d shortener_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  db_replica_1:
+    image: postgres:15-alpine
+    container_name: shortener_db_replica_1
+    restart: always
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=shortener_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_replica1_data:/var/lib/postgresql/data
+    depends_on:
+      - db_master
+
+  db_replica_2:
+    image: postgres:15-alpine
+    container_name: shortener_db_replica_2
+    restart: always
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=shortener_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_replica2_data:/var/lib/postgresql/data
+    depends_on:
+      - db_master
+
+  db_replica_3:
+    image: postgres:15-alpine
+    container_name: shortener_db_replica_3
+    restart: always
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=shortener_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres_replica3_data:/var/lib/postgresql/data
+    depends_on:
+      - db_master
+
+  redis:
+    image: redis:7-alpine
+    container_name: shortener_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_master_data:
+  postgres_replica1_data:
+  postgres_replica2_data:
+  postgres_replica3_data:
+  redis_data:
