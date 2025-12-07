@@ -1,0 +1,7 @@
+[project]
+name = "Shortener"
+version = "0.1.0"
+description = "Shortener robusto"
+authors = [
+    {name = "Rafael Dourado", email = "rafaeldouradoc7@gmail.com"}
+]
