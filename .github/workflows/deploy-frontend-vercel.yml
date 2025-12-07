@@ -2,9 +2,10 @@ name: Deploy Frontend to Vercel
 
 on:
   push:
-    branches: [ master ]
-    paths:
-      - 'frontend/**'
+    branches: [ "master" ]
+    # paths:
+    #   - 'frontend/**'
+  workflow_dispatch:
 
 jobs:
   deploy:
