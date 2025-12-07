@@ -8,7 +8,6 @@ services:
       dockerfile: Dockerfile
     image: url-shortener-backend:latest
     container_name: shortener_api
-    # Comando otimizado para produção
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --proxy-headers
     restart: always
     ports:
@@ -16,7 +15,6 @@ services:
     env_file:
       - ./backend/.env
     environment:
-      # Garante que pegamos as variáveis do GitHub Actions/EC2
       - DATABASE_WRITE_URL=${DATABASE_WRITE_URL}
       - DATABASE_READ_URLS=${DATABASE_READ_URLS}
       - REDIS_URL=${REDIS_URL}
@@ -29,17 +27,16 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # --- Nginx (Load Balancer & Proxy) ---
+  # --- Nginx (Load Balancer + Frontend Host) ---
   nginx:
     build:
-      context: ./nginx
-      dockerfile: Dockerfile
+      context: .               # <--- MUDANÇA CRÍTICA: Contexto agora é a raiz
+      dockerfile: nginx/Dockerfile
     image: url-shortener-nginx:latest
     container_name: shortener_nginx
     restart: always
     ports:
       - "80:80"
-      # - "443:443" # Descomente apenas se já tiver certificado SSL configurado
     volumes:
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
     depends_on:
@@ -53,8 +50,6 @@ services:
         max-file: "3"
 
   # --- Redis (Cache Local) ---
-  # Nota: Se você usar AWS ElastiCache, este container será ignorado pela app,
-  # mas mantê-lo aqui serve como fallback se a conexão AWS falhar.
   redis:
     image: redis:7-alpine
     container_name: shortener_redis
