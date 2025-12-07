@@ -1,17 +1,69 @@
-name: Deploy Backend to EC2
+name: Deploy Full Stack (Build & Deploy)
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "main" ]
   workflow_dispatch:
 
+env:
+  # Define o registro e o nome da imagem
+  REGISTRY: ghcr.io
+  # Usa o nome do repositório/usuário atual
+  IMAGE_NAME: ${{ github.repository }}
+
 jobs:
+  # ------------------------------------------------------------------
+  # JOB 1: BUILD E PUSH (Roda nas máquinas do GitHub)
+  # ------------------------------------------------------------------
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Corrige problema de letras maiúsculas no nome de usuário
+      - name: Lowercase Github Username
+        run: |
+          echo "OWNER_LC=${OWNER,,}" >>${GITHUB_ENV}
+        env:
+          OWNER: '${{ github.repository_owner }}'
+
+      - name: Build and push Backend
+        uses: docker/build-push-action@v4
+        with:
+          context: ./backend
+          push: true
+          # Gera: ghcr.io/usuario/url-shortener-backend:latest
+          tags: ghcr.io/${{ env.OWNER_LC }}/url-shortener-backend:latest
+
+      - name: Build and push Nginx
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: nginx/Dockerfile
+          push: true
+          # Gera: ghcr.io/usuario/url-shortener-nginx:latest
+          tags: ghcr.io/${{ env.OWNER_LC }}/url-shortener-nginx:latest
+
+  # ------------------------------------------------------------------
+  # JOB 2: DEPLOY NA EC2 (Só roda depois do Build terminar)
+  # ------------------------------------------------------------------
   deploy:
+    needs: build-and-push
     runs-on: ubuntu-latest
     
     steps:
-    - uses: actions/checkout@v3
-
     - name: Deploy to EC2
       uses: appleboy/ssh-action@master
       with:
@@ -19,26 +71,15 @@ jobs:
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
-          # --- 1. Instalação Robusta do Docker (Fix para o erro 'command not found') ---
+          # --- 1. Garante Docker Instalado ---
           if ! command -v docker &> /dev/null; then
-              echo "🐳 Docker não encontrado. Instalando..."
-              sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
-              sudo apt-get update
-              sudo apt-get install -y ca-certificates curl gnupg lsb-release git
-              
-              sudo mkdir -p /etc/apt/keyrings
-              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg --yes
-              sudo chmod a+r /etc/apt/keyrings/docker.gpg
-              
-              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-              
-              sudo apt-get update
-              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-              sudo systemctl start docker
-              sudo systemctl enable docker
+              echo "🐳 Instalando Docker..."
+              curl -fsSL https://get.docker.com -o get-docker.sh
+              sudo sh get-docker.sh
+              sudo usermod -aG docker $USER
           fi
 
-          # --- 2. Deploy da Aplicação ---
+          # --- 2. Atualiza Código ---
           if [ ! -d "url-shortener" ]; then
             git clone https://github.com/${{ github.repository }}.git url-shortener
           fi
@@ -47,13 +88,26 @@ jobs:
           git reset --hard
           git pull origin master
           
-          # Cria arquivo .env
+          # --- 3. Login no Registry (GHCR) dentro da EC2 ---
+          # Permite que a EC2 baixe suas imagens privadas
+          echo "${{ secrets.GITHUB_TOKEN }}" | sudo docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          
+          # --- 4. Cria .env ---
           echo "PROJECT_NAME=URL Shortener High-Scale" > backend/.env
           echo "BASE_URL=http://${{ secrets.EC2_HOST }}:8000" >> backend/.env
           echo "REDIS_URL=redis://redis:6379/0" >> backend/.env
           echo "DATABASE_WRITE_URL=${{ secrets.DATABASE_WRITE_URL }}" >> backend/.env
           echo "DATABASE_READ_URLS=${{ secrets.DATABASE_READ_URLS }}" >> backend/.env
           
-          # Sobe os containers
-          sudo docker compose -f docker-compose.prod.yml down
-          sudo docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+          # --- 5. Deploy ---
+          # Define a variável GITHUB_USERNAME para o docker-compose.prod.yml usar
+          export GITHUB_USERNAME=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          
+          # Baixa as imagens novas
+          sudo -E docker compose -f docker-compose.prod.yml pull
+          
+          # Reinicia os containers
+          sudo -E docker compose -f docker-compose.prod.yml up -d --remove-orphans
+          
+          # Limpa imagens antigas para economizar espaço
+          sudo docker image prune -f
