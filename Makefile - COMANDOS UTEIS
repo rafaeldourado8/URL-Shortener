@@ -1,0 +1,208 @@
+.PHONY: help setup dev prod test clean deploy-backend deploy-frontend check
+
+# Variáveis
+DOCKER_COMPOSE = docker-compose
+DOCKER_COMPOSE_PROD = docker-compose -f docker-compose.prod.yml
+BACKEND_DIR = backend
+FRONTEND_DIR = frontend
+TERRAFORM_DIR = infrastructure/terraform
+
+help: ## Mostra esta mensagem de ajuda
+	@echo "URL Shortener - Comandos Disponíveis:"
+	@echo ""
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
+
+setup: ## Configuração inicial do projeto
+	@echo "🔧 Configurando projeto..."
+	@cp -n $(BACKEND_DIR)/.env.example $(BACKEND_DIR)/.env || true
+	@echo "✅ .env criado (configure as variáveis)"
+	@cd $(FRONTEND_DIR) && npm install
+	@echo "✅ Dependências do frontend instaladas"
+	@cd $(BACKEND_DIR) && pip install -r requirements.txt
+	@echo "✅ Dependências do backend instaladas"
+	@chmod +x scripts/*.sh
+	@echo "✅ Scripts executáveis"
+	@echo ""
+	@echo "📋 Próximos passos:"
+	@echo "1. Edite backend/.env com suas configurações"
+	@echo "2. Execute: make dev"
+
+check: ## Verifica erros no projeto
+	@echo "🔍 Verificando erros..."
+	@./scripts/check-errors.sh
+
+dev: ## Inicia ambiente de desenvolvimento
+	@echo "🚀 Iniciando ambiente de desenvolvimento..."
+	$(DOCKER_COMPOSE) up -d
+	@echo ""
+	@echo "✅ Serviços iniciados!"
+	@echo "📱 Frontend: http://localhost"
+	@echo "🔌 Backend API: http://localhost:8000/docs"
+	@echo "💾 Redis: localhost:6379"
+	@echo ""
+	@echo "📊 Para ver logs: make logs"
+	@echo "🛑 Para parar: make down"
+
+prod: ## Inicia ambiente de produção
+	@echo "🏭 Iniciando ambiente de produção..."
+	$(DOCKER_COMPOSE_PROD) up -d
+	@echo "✅ Ambiente de produção iniciado!"
+
+down: ## Para todos os containers
+	@echo "🛑 Parando containers..."
+	$(DOCKER_COMPOSE) down
+	@echo "✅ Containers parados"
+
+restart: ## Reinicia todos os containers
+	@echo "🔄 Reiniciando containers..."
+	$(DOCKER_COMPOSE) restart
+	@echo "✅ Containers reiniciados"
+
+logs: ## Mostra logs de todos os serviços
+	$(DOCKER_COMPOSE) logs -f
+
+logs-backend: ## Mostra logs do backend
+	$(DOCKER_COMPOSE) logs -f app
+
+logs-frontend: ## Mostra logs do frontend
+	$(DOCKER_COMPOSE) logs -f frontend
+
+logs-nginx: ## Mostra logs do nginx
+	$(DOCKER_COMPOSE) logs -f nginx
+
+ps: ## Lista containers em execução
+	$(DOCKER_COMPOSE) ps
+
+shell-backend: ## Acessa shell do container backend
+	$(DOCKER_COMPOSE) exec app bash
+
+shell-frontend: ## Acessa shell do container frontend
+	$(DOCKER_COMPOSE) exec frontend sh
+
+shell-db: ## Acessa shell do PostgreSQL
+	$(DOCKER_COMPOSE) exec db_master psql -U user -d shortener_db
+
+shell-redis: ## Acessa shell do Redis
+	$(DOCKER_COMPOSE) exec redis redis-cli
+
+test: ## Executa testes do backend
+	@echo "🧪 Executando testes..."
+	cd $(BACKEND_DIR) && pytest -v --cov=app --cov-report=html
+
+test-watch: ## Executa testes em modo watch
+	cd $(BACKEND_DIR) && pytest-watch
+
+lint: ## Executa linter no código
+	@echo "🔍 Executando linter..."
+	cd $(BACKEND_DIR) && pylint app/
+	cd $(FRONTEND_DIR) && npm run lint
+
+format: ## Formata código
+	@echo "✨ Formatando código..."
+	cd $(BACKEND_DIR) && black app/
+	cd $(FRONTEND_DIR) && npm run format || true
+	cd $(TERRAFORM_DIR) && terraform fmt
+
+migrate: ## Executa migrações do banco
+	@echo "📊 Executando migrações..."
+	$(DOCKER_COMPOSE) exec app alembic upgrade head
+
+migrate-create: ## Cria nova migração (use MSG="descrição")
+	@echo "📝 Criando migração: $(MSG)"
+	$(DOCKER_COMPOSE) exec app alembic revision --autogenerate -m "$(MSG)"
+
+migrate-downgrade: ## Reverte última migração
+	@echo "↩️  Revertendo migração..."
+	$(DOCKER_COMPOSE) exec app alembic downgrade -1
+
+build: ## Builda imagens Docker
+	@echo "🏗️  Buildando imagens..."
+	$(DOCKER_COMPOSE) build
+
+build-prod: ## Builda imagens para produção
+	@echo "🏭 Buildando imagens de produção..."
+	$(DOCKER_COMPOSE_PROD) build
+
+clean: ## Remove containers, volumes e imagens
+	@echo "🧹 Limpando containers, volumes e imagens..."
+	$(DOCKER_COMPOSE) down -v --rmi all
+	@echo "✅ Limpeza concluída"
+
+clean-cache: ## Remove cache do Docker
+	@echo "🧹 Removendo cache do Docker..."
+	docker system prune -af
+	@echo "✅ Cache removido"
+
+# Terraform
+tf-init: ## Inicializa Terraform
+	@echo "🏗️  Inicializando Terraform..."
+	cd $(TERRAFORM_DIR) && terraform init
+
+tf-plan: ## Planeja mudanças no Terraform
+	@echo "📋 Planejando mudanças..."
+	cd $(TERRAFORM_DIR) && terraform plan
+
+tf-apply: ## Aplica mudanças no Terraform
+	@echo "🚀 Aplicando mudanças..."
+	cd $(TERRAFORM_DIR) && terraform apply
+
+tf-destroy: ## Destroi recursos do Terraform (CUIDADO!)
+	@echo "⚠️  ATENÇÃO: Isso vai DESTRUIR todos os recursos!"
+	@read -p "Tem certeza? (yes/no): " confirm && [ "$$confirm" = "yes" ] || exit 1
+	cd $(TERRAFORM_DIR) && terraform destroy
+
+tf-output: ## Mostra outputs do Terraform
+	cd $(TERRAFORM_DIR) && terraform output
+
+# Deploy
+deploy-backend: ## Deploy do backend via GitHub Actions
+	@echo "🚀 Fazendo deploy do backend..."
+	git add backend/
+	git commit -m "Deploy backend" || true
+	git push origin main
+	@echo "✅ Deploy iniciado! Acompanhe em GitHub Actions"
+
+deploy-frontend: ## Deploy do frontend via GitHub Actions
+	@echo "🚀 Fazendo deploy do frontend..."
+	git add frontend/
+	git commit -m "Deploy frontend" || true
+	git push origin main
+	@echo "✅ Deploy iniciado! Acompanhe em GitHub Actions"
+
+deploy-all: ## Deploy completo (backend + frontend)
+	@echo "🚀 Fazendo deploy completo..."
+	git add .
+	git commit -m "Deploy: backend + frontend" || true
+	git push origin main
+	@echo "✅ Deploy iniciado! Acompanhe em GitHub Actions"
+
+# Utilitários
+secrets: ## Configura secrets do GitHub
+	@./scripts/setup-github-secrets.sh
+
+benchmark: ## Executa benchmark de performance
+	@echo "📊 Executando benchmark..."
+	@echo "Criar URL:"
+	ab -n 1000 -c 10 -p tests/post.json -T application/json http://localhost/shorten
+	@echo ""
+	@echo "Redirecionar (após criar uma URL):"
+	@echo "ab -n 10000 -c 100 http://localhost/abc123"
+
+health: ## Verifica health dos serviços
+	@echo "🏥 Verificando saúde dos serviços..."
+	@curl -f http://localhost/health && echo "✅ Backend OK" || echo "❌ Backend FALHOU"
+	@curl -f http://localhost && echo "✅ Frontend OK" || echo "❌ Frontend FALHOU"
+
+db-backup: ## Faz backup do banco de dados
+	@echo "💾 Fazendo backup do banco..."
+	$(DOCKER_COMPOSE) exec -T db_master pg_dump -U user shortener_db > backup_$(shell date +%Y%m%d_%H%M%S).sql
+	@echo "✅ Backup criado: backup_$(shell date +%Y%m%d_%H%M%S).sql"
+
+db-restore: ## Restaura backup do banco (use FILE=backup.sql)
+	@echo "📥 Restaurando backup: $(FILE)"
+	$(DOCKER_COMPOSE) exec -T db_master psql -U user shortener_db < $(FILE)
+	@echo "✅ Backup restaurado"
+
+stats: ## Mostra estatísticas dos containers
+	@echo "📊 Estatísticas dos containers:"
+	docker stats --no-stream

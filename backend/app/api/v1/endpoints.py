@@ -40,7 +40,7 @@ async def get_read_service(db: AsyncSession = Depends(get_read_db)) -> URLServic
 )
 async def shorten_url(
     item: URLCreate, 
-    service: URLService = Depends(get_write_service) # <--- Usa Master DB
+    service: URLService = Depends(get_write_service)
 ):
     """
     Cria uma nova URL encurtada.
@@ -57,6 +57,7 @@ async def shorten_url(
         return URLResponse(short_url=short_url, original_url=str(item.url))
     except Exception as e:
         # Em produção, logar o erro real aqui
+        print(f"Error shortening URL: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
             detail="Erro ao processar a solicitação."
@@ -65,7 +66,7 @@ async def shorten_url(
 @router.get("/{short_key}")
 async def redirect_to_url(
     short_key: str, 
-    service: URLService = Depends(get_read_service) # <--- Usa Réplica DB
+    service: URLService = Depends(get_read_service)
 ):
     """
     Redireciona para a URL original.
