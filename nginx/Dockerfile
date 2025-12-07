@@ -8,8 +8,10 @@ RUN npm install
 
 # Copia o código fonte e faz o build
 COPY frontend/ .
-# Define a URL da API como vazia para usar o proxy reverso do próprio Nginx (mesmo domínio)
-ENV VITE_API_URL=""
+
+# CORREÇÃO AQUI: Define o IP público da sua EC2
+ENV VITE_API_URL="http://100.31.7.61"
+
 RUN npm run build
 
 # Estágio 2: Nginx Servindo os Arquivos
