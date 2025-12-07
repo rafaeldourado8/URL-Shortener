@@ -36,7 +36,7 @@ const App = () => {
     setLoading(true);
     
     try {
-      const response = await axios.post(`${API_URL}/shorten`, { url: url });
+      const response = await axios.post(`${API_URL}/urls`, { url: url });
       setResult(response.data);
       setUrl('');
     } catch (err) {
