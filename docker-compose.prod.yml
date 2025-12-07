@@ -1,36 +1,26 @@
 version: '3.8'
 
 services:
-  # -------------------------------------------------------------------------
-  # Backend API
-  # -------------------------------------------------------------------------
+  # --- API Backend ---
   app:
     build: 
       context: ./backend
       dockerfile: Dockerfile
     image: url-shortener-backend:latest
     container_name: shortener_api
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --log-level info
+    # Comando otimizado para produção
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --proxy-headers
     restart: always
     ports:
       - "8000:8000"
     env_file:
       - ./backend/.env
     environment:
-      # Override with production values if needed
+      # Garante que pegamos as variáveis do GitHub Actions/EC2
       - DATABASE_WRITE_URL=${DATABASE_WRITE_URL}
       - DATABASE_READ_URLS=${DATABASE_READ_URLS}
       - REDIS_URL=${REDIS_URL}
       - BASE_URL=${BASE_URL}
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-    depends_on:
-      redis:
-        condition: service_healthy
     networks:
       - backend_network
     logging:
@@ -39,9 +29,7 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # -------------------------------------------------------------------------
-  # Nginx Reverse Proxy & Load Balancer
-  # -------------------------------------------------------------------------
+  # --- Nginx (Load Balancer & Proxy) ---
   nginx:
     build:
       context: ./nginx
@@ -51,101 +39,38 @@ services:
     restart: always
     ports:
       - "80:80"
-      - "443:443"
+      # - "443:443" # Descomente apenas se já tiver certificado SSL configurado
     volumes:
       - ./nginx/nginx.prod.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro  # Para certificados SSL customizados
-      - nginx_cache:/var/cache/nginx
-      - nginx_logs:/var/log/nginx
     depends_on:
       - app
     networks:
       - backend_network
-    healthcheck:
-      test: ["CMD", "nginx", "-t"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
-  # -------------------------------------------------------------------------
-  # Redis Cache (Para ambientes sem ElastiCache)
-  # -------------------------------------------------------------------------
+  # --- Redis (Cache Local) ---
+  # Nota: Se você usar AWS ElastiCache, este container será ignorado pela app,
+  # mas mantê-lo aqui serve como fallback se a conexão AWS falhar.
   redis:
     image: redis:7-alpine
     container_name: shortener_redis
     restart: always
-    command: >
-      redis-server
-      --maxmemory 256mb
-      --maxmemory-policy allkeys-lru
-      --save 60 1000
-      --appendonly yes
-      --appendfsync everysec
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
       - backend_network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "5m"
-        max-file: "2"
-
-  # -------------------------------------------------------------------------
-  # OPCIONAL: PostgreSQL Local (Para teste de produção)
-  # Em produção real, use AWS RDS e comente esta seção
-  # -------------------------------------------------------------------------
-  # db_master:
-  #   image: postgres:15-alpine
-  #   container_name: shortener_db_master
-  #   restart: always
-  #   environment:
-  #     - POSTGRES_USER=user
-  #     - POSTGRES_PASSWORD=password
-  #     - POSTGRES_DB=shortener_db
-  #     - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
-  #   ports:
-  #     - "5432:5432"
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   networks:
-  #     - backend_network
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U user -d shortener_db"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
-  #   logging:
-  #     driver: "json-file"
-  #     options:
-  #       max-size: "10m"
-  #       max-file: "3"
 
 networks:
   backend_network:
     driver: bridge
-    ipam:
-      config:
-        - subnet: 172.20.0.0/16
 
 volumes:
   redis_data:
     driver: local
-  nginx_cache:
-    driver: local
-  nginx_logs:
-    driver: local
-  # postgres_data:  # Descomente se usar PostgreSQL local
-  #   driver: local

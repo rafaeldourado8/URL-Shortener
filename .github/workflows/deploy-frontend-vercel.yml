@@ -2,71 +2,21 @@ name: Deploy Frontend to Vercel
 
 on:
   push:
-    branches:
-      - main
+    branches: [ main ]
     paths:
       - 'frontend/**'
-      - '.github/workflows/deploy-frontend-vercel.yml'
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Deploy to Vercel
+        uses: amondnet/vercel-action@v20
         with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install Vercel CLI
-        run: npm install -g vercel@latest
-
-      - name: Pull Vercel Environment Information
-        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
-        working-directory: frontend
-
-      - name: Build Project Artifacts
-        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
-        working-directory: frontend
-        env:
-          VITE_API_URL: ${{ secrets.VITE_API_URL }}
-
-      - name: Deploy Project Artifacts to Vercel
-        id: deploy
-        run: |
-          URL=$(vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }})
-          echo "url=$URL" >> $GITHUB_OUTPUT
-        working-directory: frontend
-
-      - name: Verify deployment
-        run: |
-          sleep 5
-          curl -f ${{ steps.deploy.outputs.url }} || exit 1
-
-      - name: Comment PR with deployment URL
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: '🚀 Frontend deployed to: ${{ steps.deploy.outputs.url }}'
-            })
-
-      - name: Notify deployment status
-        if: always()
-        run: |
-          if [ ${{ job.status }} == 'success' ]; then
-            echo "✅ Frontend deployed successfully to Vercel!"
-            echo "🌐 URL: ${{ steps.deploy.outputs.url }}"
-          else
-            echo "❌ Frontend deployment failed!"
-            exit 1
-          fi
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./frontend
+          vercel-args: '--prod'

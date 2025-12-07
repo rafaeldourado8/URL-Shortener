@@ -1,51 +1,26 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  html {
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
-  }
-  
   body {
-    @apply antialiased;
+    /* Corrigido: Usando classes diretas para evitar erro de build */
+    @apply antialiased bg-background text-white font-sans;
     overflow-x: hidden;
   }
   
-  /* Scrollbar personalizada */
+  /* Scrollbar escura e fina */
   ::-webkit-scrollbar {
-    width: 10px;
+    width: 6px;
   }
   
   ::-webkit-scrollbar-track {
-    @apply bg-gray-900;
+    @apply bg-black;
   }
   
   ::-webkit-scrollbar-thumb {
-    @apply bg-gradient-to-b from-gradient-1 to-gradient-2 rounded-full;
+    @apply bg-zinc-800 rounded-full;
   }
-}
-
-@layer utilities {
-  .glass {
-    @apply backdrop-blur-lg bg-white/5 border border-white/10;
-  }
-  
-  .text-gradient {
-    @apply bg-clip-text text-transparent bg-gradient-to-r from-gradient-1 via-gradient-2 to-gradient-3;
-  }
-  
-  .animate-float {
-    animation: float 6s ease-in-out infinite;
-  }
-}
-
-/* Efeitos de partículas sutil */
-.particle {
-  position: absolute;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 50%;
-  pointer-events: none;
 }

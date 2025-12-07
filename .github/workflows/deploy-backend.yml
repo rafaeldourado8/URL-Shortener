@@ -1,0 +1,45 @@
+name: Deploy Backend to EC2
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'backend/**'
+      - 'nginx/**'
+      - 'docker-compose.prod.yml'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          # 1. Garante que o git e docker estão instalados
+          sudo apt-get update
+          sudo apt-get install -y git docker.compose
+
+          # 2. Clona o repo se não existir, ou atualiza se já existir
+          if [ ! -d "url-shortener" ]; then
+            git clone https://github.com/${{ github.repository }}.git url-shortener
+          fi
+          cd url-shortener
+          git pull origin main
+          
+          # 3. Cria o arquivo .env do Backend com os Segredos do GitHub
+          # Isso conecta seu EC2 ao RDS que você acabou de criar
+          echo "PROJECT_NAME=URL Shortener High-Scale" > backend/.env
+          echo "BASE_URL=http://${{ secrets.EC2_HOST }}:8000" >> backend/.env
+          echo "REDIS_URL=redis://redis:6379/0" >> backend/.env
+          echo "DATABASE_WRITE_URL=${{ secrets.DATABASE_WRITE_URL }}" >> backend/.env
+          echo "DATABASE_READ_URLS=${{ secrets.DATABASE_READ_URLS }}" >> backend/.env
+          
+          # 4. Sobe os containers (Recarrega o código novo)
+          sudo docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
