@@ -3,10 +3,6 @@ name: Deploy Backend to EC2
 on:
   push:
     branches: [ "master" ]
-    # paths:
-    #   - 'backend/**'
-    #   - 'nginx/**'
-    #   - 'docker-compose.prod.yml'
   workflow_dispatch:
 
 jobs:
@@ -23,25 +19,41 @@ jobs:
         username: ${{ secrets.EC2_USER }}
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
-          # 1. Garante que o git e docker estão instalados
-          sudo apt-get update
-          sudo apt-get install -y git docker-compose-plugin
+          # --- 1. Instalação Robusta do Docker (Fix para o erro 'command not found') ---
+          if ! command -v docker &> /dev/null; then
+              echo "🐳 Docker não encontrado. Instalando..."
+              sudo apt-get remove -y docker docker-engine docker.io containerd runc || true
+              sudo apt-get update
+              sudo apt-get install -y ca-certificates curl gnupg lsb-release git
+              
+              sudo mkdir -p /etc/apt/keyrings
+              curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg --yes
+              sudo chmod a+r /etc/apt/keyrings/docker.gpg
+              
+              echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+              
+              sudo apt-get update
+              sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+              sudo systemctl start docker
+              sudo systemctl enable docker
+          fi
 
-          # 2. Clona o repo se não existir, ou atualiza se já existir
+          # --- 2. Deploy da Aplicação ---
           if [ ! -d "url-shortener" ]; then
             git clone https://github.com/${{ github.repository }}.git url-shortener
           fi
           
           cd url-shortener
-          # CORREÇÃO CRÍTICA: git pull da master, não main
+          git reset --hard
           git pull origin master
           
-          # 3. Cria o arquivo .env do Backend com os Segredos do GitHub
+          # Cria arquivo .env
           echo "PROJECT_NAME=URL Shortener High-Scale" > backend/.env
           echo "BASE_URL=http://${{ secrets.EC2_HOST }}:8000" >> backend/.env
           echo "REDIS_URL=redis://redis:6379/0" >> backend/.env
           echo "DATABASE_WRITE_URL=${{ secrets.DATABASE_WRITE_URL }}" >> backend/.env
           echo "DATABASE_READ_URLS=${{ secrets.DATABASE_READ_URLS }}" >> backend/.env
           
-          # 4. Sobe os containers (Recarrega o código novo)
+          # Sobe os containers
+          sudo docker compose -f docker-compose.prod.yml down
           sudo docker compose -f docker-compose.prod.yml up -d --build --remove-orphans

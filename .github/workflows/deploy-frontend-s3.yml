@@ -3,8 +3,6 @@ name: Deploy Frontend to S3
 on:
   push:
     branches: [ "master" ]
-    # paths:
-    #   - 'frontend/**'
   workflow_dispatch:
 
 jobs:
@@ -22,11 +20,13 @@ jobs:
     - name: Install Dependencies
       run: |
         cd frontend
-        npm ci
+        # Removemos o lock antigo para evitar conflito de versão React 18/19
+        rm -rf package-lock.json node_modules
+        # Usamos install em vez de ci para gerar um lock novo compatível
+        npm install
 
     - name: Build React App
       env:
-        # O Frontend precisa saber onde está a API (seu EC2)
         VITE_API_URL: http://${{ secrets.EC2_HOST }}:8000
       run: |
         cd frontend
